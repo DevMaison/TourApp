@@ -7,7 +7,7 @@
 
 <!-- =========================================================================
      UNE SEULE CHOSE À MODIFIER
-     Remplace les DEUX occurrences de https://script.google.com/macros/s/AKfycbwddhFE3m-S5xkuoKpXIu5jXchvNUoUFID4egvwSWAvjZpJHg7KoDTvQyI4zGXYDrNA/exec par l'URL de ton
+     Remplace les DEUX occurrences de COLLE_ICI_TON_URL par l'URL de ton
      application web Apps Script (celle qui finit par /exec).
      Elles sont dans le <script> tout en bas.
      ========================================================================= -->
@@ -42,6 +42,14 @@ iframe{
   transition:opacity .25s ease;
 }
 #attente.parti{opacity:0; pointer-events:none;}
+#pin{
+  font:inherit;font-size:30px;font-weight:600;letter-spacing:.32em;text-align:center;
+  width:220px;padding:14px 10px 14px 20px;border-radius:16px;
+  border:2px solid var(--texte-2);background:var(--surface);color:var(--texte);
+  font-variant-numeric:tabular-nums;}
+#pin:focus{outline:none;border-color:var(--accent);}
+.refus{color:#B3183A;font-weight:600;}
+@media (prefers-color-scheme:dark){.refus{color:#FB7185;}}
 img.logo{width:88px;height:88px;border-radius:24px;}
 h1{font-size:24px;font-weight:700;margin:0;letter-spacing:-.02em;}
 p{font-size:15px;color:var(--texte-2);margin:0;max-width:300px;}
@@ -60,8 +68,11 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
 <div id="attente">
   <img class="logo" src="icon-192.png" alt="">
   <h1>TourApp</h1>
-  <p>Ouverture du tableau de bord…</p>
-  <div class="point" aria-hidden="true"></div>
+  <p id="titre">Ouverture du tableau de bord…</p>
+  <div class="point" id="point" aria-hidden="true"></div>
+  <input id="pin" type="tel" inputmode="numeric" maxlength="6"
+         autocomplete="off" aria-label="Code d'accès" style="display:none">
+  <p id="refus" class="refus" style="display:none">Code incorrect.</p>
   <p id="secours" style="display:none">
     L'affichage intégré a échoué.<br>
     <a id="lien" href="#">Ouvrir directement</a>
@@ -73,17 +84,76 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
         referrerpolicy="no-referrer"></iframe>
 
 <script>
-  var CIBLE = "https://script.google.com/macros/s/AKfycbwddhFE3m-S5xkuoKpXIu5jXchvNUoUFID4egvwSWAvjZpJHg7KoDTvQyI4zGXYDrNA/exec";
-  document.getElementById('lien').href = "https://script.google.com/macros/s/AKfycbwddhFE3m-S5xkuoKpXIu5jXchvNUoUFID4egvwSWAvjZpJHg7KoDTvQyI4zGXYDrNA/exec";
+  var CIBLE = "COLLE_ICI_TON_URL";
+  document.getElementById('lien').href = "COLLE_ICI_TON_URL";
 
-  var cadre = document.getElementById('app');
+  var cadre   = document.getElementById('app');
   var attente = document.getElementById('attente');
+  var champ   = document.getElementById('pin');
+  var CODE    = null;
+
+  // Le code est retenu ICI, sur github.io, en premier niveau. Safari cloisonne
+  // le stockage d'un cadre tiers : mémorisé dans l'application, il serait
+  // oublié à chaque ouverture.
+  try { CODE = localStorage.getItem('tourapp_code'); } catch(e) {}
+
+  // Le thème est retenu ici aussi, pour la même raison que le code.
+  var THEME = 'auto';
+  try { THEME = localStorage.getItem('tourapp_theme') || 'auto'; } catch(e) {}
+
+  function envoyerTheme(){
+    try { cadre.contentWindow.postMessage({type:'tourapp-theme', valeur:THEME}, '*'); } catch(e) {}
+  }
+
+  function demanderCode(refuse){
+    document.getElementById('titre').textContent = "Code d'accès";
+    document.getElementById('point').style.display = 'none';
+    document.getElementById('refus').style.display = refuse ? 'block' : 'none';
+    champ.style.display = 'block';
+    champ.value = '';
+    champ.focus();
+  }
+
+  champ.addEventListener('input', function(){
+    this.value = this.value.replace(/\D/g,'');
+    if (this.value.length === 6){
+      CODE = this.value;
+      try { localStorage.setItem('tourapp_code', CODE); } catch(e) {}
+      this.blur();
+      this.style.display = 'none';
+      document.getElementById('refus').style.display = 'none';
+      document.getElementById('titre').textContent = 'Vérification…';
+      document.getElementById('point').style.display = 'block';
+      envoyerCode();
+    }
+  });
+
+  function envoyerCode(){
+    try { cadre.contentWindow.postMessage({type:'tourapp-code', valeur:CODE}, '*'); } catch(e) {}
+  }
 
   // On ne se fie pas à l'événement « load » : il se déclenche aussi quand
   // Google renvoie une page d'erreur dans le cadre. Seule l'application
   // elle-même sait dire qu'elle a vraiment démarré.
   window.addEventListener('message', function(e){
-    if (e.data === 'tourapp-pret') attente.classList.add('parti');
+    if (e.data === 'tourapp-pret') { attente.classList.add('parti'); return; }
+    if (e.data && e.data.type === 'tourapp-theme') {
+      THEME = e.data.valeur;
+      try { localStorage.setItem('tourapp_theme', THEME); } catch(e2) {}
+      return;
+    }
+    if (e.data === 'tourapp-code-refuse') {
+      try { localStorage.removeItem('tourapp_code'); } catch(e2) {}
+      CODE = null;
+      attente.classList.remove('parti');
+      demanderCode(true);
+    }
+  });
+
+  // L'application est chargée : on lui transmet le code, ou on le demande.
+  cadre.addEventListener('load', function(){
+    envoyerTheme();
+    if (CODE) envoyerCode(); else demanderCode(false);
   });
 
   // Au bout de 8 s sans signal, on propose la sortie manuelle.
@@ -94,7 +164,9 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
 
   // Au bout de 12 s, on découvre le cadre quoi qu'il arrive : mieux vaut
   // montrer le message d'erreur que laisser l'animation tourner sans fin.
-  setTimeout(function(){ attente.classList.add('parti'); }, 12000);
+  setTimeout(function(){
+    if (champ.style.display !== 'block') attente.classList.add('parti');
+  }, 12000);
 
   cadre.src = CIBLE;
 </script>
