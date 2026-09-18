@@ -101,8 +101,14 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
   var THEME = 'auto';
   try { THEME = localStorage.getItem('tourapp_theme') || 'auto'; } catch(e) {}
 
+  // On ne parle jamais à cadre.contentWindow : Apps Script imbrique encore un
+  // cadre à l'intérieur, et notre message s'arrêterait à la page Google.
+  // On garde donc la fenêtre qui s'est présentée à nous, et on lui répond.
+  var appli = null;
+
   function envoyerTheme(){
-    try { cadre.contentWindow.postMessage({type:'tourapp-theme', valeur:THEME}, '*'); } catch(e) {}
+    if (!appli) return;
+    try { appli.postMessage({type:'tourapp-theme', valeur:THEME}, '*'); } catch(e) {}
   }
 
   function demanderCode(refuse){
@@ -129,13 +135,21 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
   });
 
   function envoyerCode(){
-    try { cadre.contentWindow.postMessage({type:'tourapp-code', valeur:CODE}, '*'); } catch(e) {}
+    if (!appli) return;
+    try { appli.postMessage({type:'tourapp-code', valeur:CODE}, '*'); } catch(e) {}
   }
 
   // On ne se fie pas à l'événement « load » : il se déclenche aussi quand
   // Google renvoie une page d'erreur dans le cadre. Seule l'application
   // elle-même sait dire qu'elle a vraiment démarré.
   window.addEventListener('message', function(e){
+    // L'application se présente : on retient sa fenêtre et on lui répond.
+    if (e.data && e.data.type === 'tourapp-presente') {
+      appli = e.source;
+      envoyerTheme();
+      if (CODE) envoyerCode(); else demanderCode(false);
+      return;
+    }
     if (e.data === 'tourapp-pret') { attente.classList.add('parti'); return; }
     if (e.data && e.data.type === 'tourapp-theme') {
       THEME = e.data.valeur;
@@ -151,10 +165,8 @@ a{color:var(--accent);font-weight:600;font-size:15px;text-decoration:none;}
   });
 
   // L'application est chargée : on lui transmet le code, ou on le demande.
-  cadre.addEventListener('load', function(){
-    envoyerTheme();
-    if (CODE) envoyerCode(); else demanderCode(false);
-  });
+  // Rien à faire au chargement du cadre : c'est l'application qui se
+  // manifestera d'elle-même, quel que soit son niveau d'imbrication.
 
   // Au bout de 8 s sans signal, on propose la sortie manuelle.
   setTimeout(function(){
